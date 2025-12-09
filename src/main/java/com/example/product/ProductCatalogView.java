@@ -32,10 +32,13 @@ class ProductCatalogView extends VerticalLayout {
                 .setSortProperty(ProductCatalogItem.SORT_PROPERTY_CATEGORY);
         grid.addColumn(ProductCatalogItem::brand).setHeader("Brand")
                 .setSortProperty(ProductCatalogItem.SORT_PROPERTY_BRAND);
-        grid.setItemsPageable(pageable -> repository.findByNameContainingIgnoreCase(searchField.getValue(), pageable).getContent());
+        grid.setItemsPageable(pageable -> repository
+                .findByNameContainingIgnoreCase(searchField.getValue(), pageable)
+                .getContent()
+        );
 
-        // Set up listeners
-        searchField.addValueChangeListener(e -> grid.getDataProvider().refreshAll());
+        searchField.addValueChangeListener(e ->
+                grid.getDataProvider().refreshAll());
 
         // Layout view
         setSizeFull();
