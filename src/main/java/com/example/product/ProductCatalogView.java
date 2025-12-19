@@ -1,19 +1,25 @@
 package com.example.product;
 
+import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.grid.ColumnTextAlign;
 import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.icon.VaadinIcon;
+import com.vaadin.flow.component.notification.Notification;
+import com.vaadin.flow.component.notification.NotificationVariant;
+import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.value.ValueChangeMode;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 
 @Route("")
 @PageTitle("Product Catalog")
-class ProductCatalogView extends VerticalLayout {
+class ProductCatalogView extends HorizontalLayout {
 
-    ProductCatalogView(ProductCatalogItemRepository repository) {
+    ProductCatalogView(ProductCatalogService service) {
         // Create components
         var searchField = new TextField();
         searchField.setPlaceholder("Search");
@@ -21,29 +27,90 @@ class ProductCatalogView extends VerticalLayout {
         searchField.setValueChangeMode(ValueChangeMode.LAZY);
 
         var grid = new Grid<ProductCatalogItem>();
-        grid.addColumn(ProductCatalogItem::name).setHeader("Name")
+        grid.addColumn(ProductCatalogItem::name)
+                .setHeader("Name")
                 .setSortProperty(ProductCatalogItem.SORT_PROPERTY_NAME);
-        grid.addColumn(ProductCatalogItem::price).setHeader("Price")
+        grid.addColumn(ProductCatalogItem::price)
+                .setHeader("Price")
                 .setTextAlign(ColumnTextAlign.END)
                 .setSortProperty(ProductCatalogItem.SORT_PROPERTY_PRICE);
-        grid.addColumn(ProductCatalogItem::description).setHeader("Description")
+        grid.addColumn(ProductCatalogItem::description)
+                .setHeader("Description")
                 .setSortProperty(ProductCatalogItem.SORT_PROPERTY_DESCRIPTION);
-        grid.addColumn(ProductCatalogItem::category).setHeader("Category")
+        grid.addColumn(ProductCatalogItem::category)
+                .setHeader("Category")
                 .setSortProperty(ProductCatalogItem.SORT_PROPERTY_CATEGORY);
-        grid.addColumn(ProductCatalogItem::brand).setHeader("Brand")
+        grid.addColumn(ProductCatalogItem::brand)
+                .setHeader("Brand")
                 .setSortProperty(ProductCatalogItem.SORT_PROPERTY_BRAND);
-        grid.setItemsPageable(pageable -> repository
-                .findByNameContainingIgnoreCase(searchField.getValue(), pageable)
-                .getContent()
+        grid.setItemsPageable(pageable -> service
+                .findItems(searchField.getValue(), pageable)
         );
+
+        var drawer = new ProductFormDrawer(productDetails -> {
+            var saved = service.save(productDetails);
+            grid.getDataProvider().refreshAll();
+            return saved;
+        }, this::handleException);
 
         searchField.addValueChangeListener(e ->
                 grid.getDataProvider().refreshAll());
 
+        grid.addSelectionListener(e -> {
+            var productDetails = e.getFirstSelectedItem()
+                    .flatMap(item -> service.findDetailsById(item.productId()))
+                    .orElse(null);
+            drawer.setProductDetails(productDetails);
+        });
+
+        var addButton = new Button("Add Product", e ->
+                new AddProductDialog(
+                        productDetails -> {
+                            var saved = service.save(productDetails);
+                            grid.getDataProvider().refreshAll();
+                            service.findItemById(saved.getProductId())
+                                    .ifPresent(grid::select);
+                        },
+                        this::handleException
+                ).open()
+        );
+
         // Layout view
         setSizeFull();
+        setSpacing(false);
+
+        var toolbar = new HorizontalLayout();
+        toolbar.setWidthFull();
+        toolbar.addToStart(searchField);
+        toolbar.addToEnd(addButton);
+
+        var listLayout = new VerticalLayout(toolbar, grid);
+        listLayout.setSizeFull();
         grid.setSizeFull();
-        add(searchField);
-        add(grid);
+
+        add(listLayout, drawer);
+        setFlexShrink(0, drawer);
+    }
+
+    private void handleException(RuntimeException exception) {
+        if (exception instanceof OptimisticLockingFailureException) {
+            var notification = new Notification(
+                    "Another user has edited the same product. "
+                            + "Please refresh and try again.");
+            notification.setPosition(Notification.Position.MIDDLE);
+            notification.addThemeVariants(NotificationVariant.LUMO_WARNING);
+            notification.setDuration(3000);
+            notification.open();
+        } else if (exception instanceof DataIntegrityViolationException) {
+            var notification = new Notification(
+                    "The SKU is already in use. Please enter another one.");
+            notification.setPosition(Notification.Position.MIDDLE);
+            notification.addThemeVariants(NotificationVariant.LUMO_WARNING);
+            notification.setDuration(3000);
+            notification.open();
+        } else {
+            // Delegate to Vaadin's default error handler
+            throw exception;
+        }
     }
 }
