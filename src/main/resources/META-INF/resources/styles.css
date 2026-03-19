@@ -1,1 +1,5 @@
 /* Add your styles here */
+
+.product-form-drawer {
+    box-shadow: var(--aura-shadow-m);
+}

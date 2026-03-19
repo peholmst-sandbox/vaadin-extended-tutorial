@@ -1,18 +1,18 @@
 package com.example;
 
 import com.vaadin.flow.theme.aura.Aura;
-import com.vaadin.flow.theme.lumo.Lumo;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 import com.vaadin.flow.component.dependency.StyleSheet;
 import com.vaadin.flow.component.page.AppShellConfigurator;
+import org.springframework.context.annotation.Import;
+import org.vaadin.tutorial.backend.TutorialBackendConfiguration;
 
 @SpringBootApplication
-@StyleSheet(Lumo.STYLESHEET) // Use Aura.STYLESHEET to use Aura instead
-@StyleSheet(Lumo.UTILITY_STYLESHEET)
-//@StyleSheet(Aura.STYLESHEET)
+@StyleSheet(Aura.STYLESHEET)
 @StyleSheet("styles.css")
+@Import(TutorialBackendConfiguration.class)
 public class Application implements AppShellConfigurator {
 
     public static void main(String[] args) {

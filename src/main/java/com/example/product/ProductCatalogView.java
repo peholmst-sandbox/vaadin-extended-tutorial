@@ -1,5 +1,6 @@
 package com.example.product;
 
+import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.grid.ColumnTextAlign;
 import com.vaadin.flow.component.grid.Grid;
@@ -9,67 +10,93 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.data.provider.CallbackDataProvider;
+import com.vaadin.flow.data.provider.DataProvider;
 import com.vaadin.flow.data.value.ValueChangeMode;
+import com.vaadin.flow.router.BeforeEvent;
+import com.vaadin.flow.router.HasUrlParameter;
+import com.vaadin.flow.router.OptionalParameter;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.OptimisticLockingFailureException;
+import org.vaadin.tutorial.backend.data.DataIntegrityViolationException;
+import org.vaadin.tutorial.backend.data.OptimisticLockingFailureException;
+import org.vaadin.tutorial.backend.product.ProductCatalogItem;
+import org.vaadin.tutorial.backend.product.ProductCatalogService;
+import org.vaadin.tutorial.backend.product.ProductCategoryService;
+import org.vaadin.tutorial.backend.product.ProductFilter;
+import org.vaadin.tutorial.backend.product.ProductId;
+import org.vaadin.tutorial.backend.product.ProductSortProperty;
+import org.vaadin.tutorial.backend.util.VaadinUtils;
+
+import java.util.Optional;
 
 @Route("")
 @PageTitle("Product Catalog")
-class ProductCatalogView extends HorizontalLayout {
+class ProductCatalogView extends HorizontalLayout implements HasUrlParameter<Long> {
 
-    ProductCatalogView(ProductCatalogService service) {
+    private final ProductCatalogService service;
+    private final Grid<ProductCatalogItem> grid;
+    private final ProductFormDrawer drawer;
+
+    ProductCatalogView(ProductCategoryService productCategoryService, ProductCatalogService service) {
+        this.service = service;
+
         // Create components
         var searchField = new TextField();
         searchField.setPlaceholder("Search");
         searchField.setPrefixComponent(VaadinIcon.SEARCH.create());
         searchField.setValueChangeMode(ValueChangeMode.LAZY);
 
-        var grid = new Grid<ProductCatalogItem>();
+        grid = new Grid<>();
         grid.addColumn(ProductCatalogItem::name)
                 .setHeader("Name")
-                .setSortProperty(ProductCatalogItem.SORT_PROPERTY_NAME);
+                .setSortProperty(ProductSortProperty.NAME.name());
         grid.addColumn(ProductCatalogItem::price)
                 .setHeader("Price")
                 .setTextAlign(ColumnTextAlign.END)
-                .setSortProperty(ProductCatalogItem.SORT_PROPERTY_PRICE);
+                .setSortProperty(ProductSortProperty.PRICE.name());
         grid.addColumn(ProductCatalogItem::description)
                 .setHeader("Description")
-                .setSortProperty(ProductCatalogItem.SORT_PROPERTY_DESCRIPTION);
-        grid.addColumn(ProductCatalogItem::category)
+                .setSortProperty(ProductSortProperty.DESCRIPTION.name());
+        grid.addColumn(item -> item.category().name())
                 .setHeader("Category")
-                .setSortProperty(ProductCatalogItem.SORT_PROPERTY_CATEGORY);
+                .setSortProperty(ProductSortProperty.CATEGORY.name());
         grid.addColumn(ProductCatalogItem::brand)
                 .setHeader("Brand")
-                .setSortProperty(ProductCatalogItem.SORT_PROPERTY_BRAND);
-        grid.setItemsPageable(pageable -> service
-                .findItems(searchField.getValue(), pageable)
-        );
+                .setSortProperty(ProductSortProperty.BRAND.name());
 
-        var drawer = new ProductFormDrawer(productDetails -> {
-            var saved = service.save(productDetails);
-            grid.getDataProvider().refreshAll();
-            return saved;
-        }, this::handleException);
+        var dataProvider = DataProvider.fromFilteringCallbacks(
+                        (CallbackDataProvider.FetchCallback<ProductCatalogItem, ProductFilter>) query -> service.findItems(VaadinUtils.fromVaadinQuery(query, ProductSortProperty::valueOf)).stream(),
+                        (CallbackDataProvider.CountCallback<ProductCatalogItem, ProductFilter>) query -> service.countItems(VaadinUtils.fromVaadinQuery(query, ProductSortProperty::valueOf)))
+                .withConfigurableFilter();
+        grid.setDataProvider(dataProvider);
+
+        drawer = new ProductFormDrawer(
+                productCategoryService,
+                productDetails -> {
+                    var saved = service.save(productDetails);
+                    grid.getDataProvider().refreshAll();
+                    return saved;
+                }, this::handleException);
 
         searchField.addValueChangeListener(e ->
-                grid.getDataProvider().refreshAll());
+                dataProvider.setFilter(new ProductFilter(searchField.getValue()))
+        );
 
-        grid.addSelectionListener(e -> {
-            var productDetails = e.getFirstSelectedItem()
-                    .flatMap(item -> service.findDetailsById(item.productId()))
-                    .orElse(null);
-            drawer.setProductDetails(productDetails);
-        });
+        grid.addSelectionListener(e -> e.getFirstSelectedItem()
+                .map(ProductCatalogItem::productId)
+                .ifPresentOrElse(
+                        ProductCatalogView::showProductDetails,
+                        ProductCatalogView::showProductCatalog
+                ));
 
         var addButton = new Button("Add Product", e ->
                 new AddProductDialog(
+                        productCategoryService,
                         productDetails -> {
                             var saved = service.save(productDetails);
                             grid.getDataProvider().refreshAll();
-                            service.findItemById(saved.getProductId())
-                                    .ifPresent(grid::select);
+                            showProductDetails(saved.getProductId());
                         },
                         this::handleException
                 ).open()
@@ -98,19 +125,41 @@ class ProductCatalogView extends HorizontalLayout {
                     "Another user has edited the same product. "
                             + "Please refresh and try again.");
             notification.setPosition(Notification.Position.MIDDLE);
-            notification.addThemeVariants(NotificationVariant.LUMO_WARNING);
+            notification.addThemeVariants(NotificationVariant.WARNING);
             notification.setDuration(3000);
             notification.open();
         } else if (exception instanceof DataIntegrityViolationException) {
             var notification = new Notification(
                     "The SKU is already in use. Please enter another one.");
             notification.setPosition(Notification.Position.MIDDLE);
-            notification.addThemeVariants(NotificationVariant.LUMO_WARNING);
+            notification.addThemeVariants(NotificationVariant.WARNING);
             notification.setDuration(3000);
             notification.open();
         } else {
             // Delegate to Vaadin's default error handler
             throw exception;
         }
+    }
+
+    @Override
+    public void setParameter(BeforeEvent event, @OptionalParameter Long productId) {
+        // Update grid selection
+        Optional.ofNullable(productId)
+                .map(ProductId::new)
+                .flatMap(service::findItemById)
+                .ifPresentOrElse(grid::select, grid::deselectAll);
+        // Show or hide the drawer
+        drawer.setProductDetails(Optional.ofNullable(productId)
+                .map(ProductId::new)
+                .flatMap(service::findDetailsById)
+                .orElse(null));
+    }
+
+    public static void showProductDetails(ProductId productId) {
+        UI.getCurrent().navigate(ProductCatalogView.class, productId.id());
+    }
+
+    public static void showProductCatalog() {
+        UI.getCurrent().navigate(ProductCatalogView.class);
     }
 }

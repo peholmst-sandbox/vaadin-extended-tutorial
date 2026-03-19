@@ -1,6 +1,7 @@
 package com.example.product;
 
 import com.vaadin.flow.component.Composite;
+import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.textfield.BigDecimalField;
@@ -8,18 +9,28 @@ import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.binder.Binder;
 import org.jspecify.annotations.Nullable;
+import org.vaadin.tutorial.backend.financial.Money;
+import org.vaadin.tutorial.backend.product.ProductCategory;
+import org.vaadin.tutorial.backend.product.ProductCategoryService;
+import org.vaadin.tutorial.backend.product.ProductDetails;
+import org.vaadin.tutorial.backend.product.SKU;
 
 import java.util.Optional;
+
+import static org.vaadin.tutorial.backend.util.VaadinUtils.flatMapOrNull;
+import static org.vaadin.tutorial.backend.util.VaadinUtils.mapOrDefault;
+import static org.vaadin.tutorial.backend.util.VaadinUtils.mapOrNull;
 
 class ProductForm extends Composite<FormLayout> {
 
     private final Binder<ProductDetails> binder;
 
-    ProductForm() {
+    ProductForm(ProductCategoryService productCategoryService) {
         // Create components
         var nameField = new TextField("Name");
         var descriptionField = new TextArea("Description");
-        var categoryField = new TextField("Category");
+        var categoryField = new ComboBox<>("Category", productCategoryService.findAll());
+        categoryField.setItemLabelGenerator(ProductCategory::name);
         var brandField = new TextField("Brand");
         var skuField = new TextField("SKU");
         var releaseDateField = new DatePicker("Release Date");
@@ -44,18 +55,21 @@ class ProductForm extends Composite<FormLayout> {
         binder.forField(descriptionField).asRequired("Enter description")
                 .bind(ProductDetails::getDescription, ProductDetails::setDescription);
         binder.forField(categoryField).asRequired("Enter category")
+                .withConverter(mapOrNull(ProductCategory::productCategoryId), flatMapOrNull(productCategoryService::findById))
                 .bind(ProductDetails::getCategory, ProductDetails::setCategory);
         binder.forField(brandField)
                 .bind(ProductDetails::getBrand, ProductDetails::setBrand);
         binder.forField(skuField).asRequired("Enter SKU")
+                .withConverter(mapOrDefault(SKU::new, "", null), mapOrDefault(SKU::value, null, ""))
                 .bind(ProductDetails::getSku, ProductDetails::setSku);
         binder.forField(releaseDateField)
                 .bind(ProductDetails::getReleaseDate, ProductDetails::setReleaseDate);
         binder.forField(priceField).asRequired("Enter price")
+                .withConverter(mapOrNull(Money::new), mapOrNull(Money::amount))
                 .bind(ProductDetails::getPrice, ProductDetails::setPrice);
         binder.forField(discountField)
+                .withConverter(mapOrNull(Money::new), mapOrNull(Money::amount))
                 .bind(ProductDetails::getDiscount, ProductDetails::setDiscount);
-        // Remove the call to binder.setReadOnly(true) here.
     }
 
     public void setFormDataObject(@Nullable ProductDetails productDetails) {
